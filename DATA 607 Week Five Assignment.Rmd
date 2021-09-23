@@ -1,0 +1,159 @@
+---
+title: "Data 607 Assignment#5"
+author: "Tyler Baker"
+date: "9/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+```
+
+# Assignment 5
+## Tidy Data
+
+The goals of this week's assignments are to:
+1. Create a CSV file for the supplied data.
+2. Read the csv file into R Studio.
+3. Make the table Tidy
+    -Make sure every column is a variable.
+    -Make sure every row is an observation.
+4. Perform analysis on the tidy table.
+    -Do you have enough information to calculate the total         population?
+    -Calculate Efficacy vs severe disease
+    (formula was provided)
+    -From the above calculation, are you able to compare the
+     efficacy vs severe disease rate between vaccinated and
+     unvaccinated people?
+5. Write detailed explanations of the clean up work, the 
+   analysis, and the conclusions made.
+
+```{r importing data}
+url <- "https://raw.githubusercontent.com/tylerbaker01/Data607-Assignment-5/main/israeli_vaccination_data_analysis_start.csv"
+vaccine_data_dirty <- data.frame(read.csv(file = url, header = FALSE, stringsAsFactors = FALSE, strip.white = TRUE))
+names(vaccine_data_dirty) <- c("age", "pop_non_vac", "pop_vac", "severe_cases", "efficacy")
+vaccine_dirty <- vaccine_data_dirty[-c(1,2), -c(6)]
+```
+
+
+## Total Population Problem
+
+
+If we add up the percent of vaccinated people under the age of 50 we get 96.3%. Thus, we are missing 3.7% of this population. So, no, we cannot get the total population from this data. However, we can do a great job of estimating it. To estimate we assume that the remaining 3.7% will also have 23.3% of them unvaccinated, and 73% of them are vaccinated. Therefore, to find the estimate of what percentage of the missing 3.75 of we people that are unvaccinated we do .233 * 3.7 = .86. and for vaccinated we do .73 * 3.7 = 2.7. We add these numbers to our already established percentages to get a really strong estimate. For those below the age of 50, we estimate that 75.7% of them are vaccinated, while 24.2% are not.
+
+We use the same strategy for those over age 50. The results yeild that 91.9% are vaccinated, while 8% are not.
+
+Please note, that these new estimates add up to 99.9%, instead of a 100%. This is due to rounding.
+
+Now, to estimate the total population as a number. 
+
+To do this we start by adding up the populations of the <50 age groups. This yeilded 4,617,952. Now since we know that there was a some people who were missing from the data we know that 4,617,952 is not the total population for people under 50. Thus, we get (4,617,952/x) = (96.3/100). Now we must solve for x. x= 4,795,381. Note that I rounded to the nearest whole number because we cannot allow for a fraction of a person.
+Doing the same process for people over 50 gives us a total population of 2,369,709.
+
+Thus, the total population of people in Isreal is 4,795381 + 2,359,709 = 7155,090.
+
+
+
+## Tidy
+
+
+My goal is to turn the data table into a form where each column is a variable , and each row is an observation. The columns should be Age, Vaccination Status, Percentage of Total Population, Severe Cases, Efficacy vs Severe Disease.
+Thus, row 1 should read something like: <50, vaccinated, some perctentage, some percentage, some percentage.
+
+```{r}
+vaccine_dirty <- vaccine_dirty %>%
+  pivot_longer(c('pop_non_vac', 'pop_vac'), names_to = "vaccination_status", values_to = "pop")
+#pull out the percentages
+vaccine_dirty_perc <- vaccine_dirty %>%
+  filter(grepl("%", pop))
+#drop off the unused rows in vaccine_dirty
+drop_vector <- c(5:34)
+vaccine_dirty <- vaccine_dirty %>% slice(-c(3,4)) %>%
+ slice(-c(drop_vector))
+#select only the pop vector in vaccine_dirt_perc
+vaccine_dirty_perc <- vaccine_dirty_perc %>% select(pop)
+#change the vector name in vaccine_dirty_perc
+colnames(vaccine_dirty_perc)[1] <- "percentage_of_pop"
+```
+
+
+## Combing the Two Data Frames
+
+
+```{r}
+vaccine_data_closer <- cbind(vaccine_dirty,vaccine_dirty_perc)
+```
+
+
+## cleaning data further
+
+
+I need to now remove the severe cases and the efficacy columns. Then delete the duplicates, and then combine those into a 4x1 matrix so that I can then add this back in.
+```{r}
+#separating into two dfs
+severe_cases_data<- vaccine_data_closer %>%
+  select(severe_cases, efficacy)
+severe_cases_data <- severe_cases_data[!duplicated(severe_cases_data),]
+severe_cases_data<- stack(severe_cases_data)
+severe_cases_data<- severe_cases_data[1]
+target <- c("43", "11", "171", "290")
+severe_cases_data<- severe_cases_data[match(target,severe_cases_data$values),]
+
+#Combining dfs
+vaccine_data_closer<- cbind(vaccine_data_closer, severe_cases_data)
+
+#remove columns severe_cases and efficacy
+vaccine_data = subset(vaccine_data_closer, select= -c(severe_cases, efficacy))
+
+#change column data types
+vaccine_data$age <- as.factor(vaccine_data$age)
+vaccine_data$vaccination_status <- as.factor(vaccine_data$vaccination_status)
+vaccine_data$sever_cases_data <- as.numeric(vaccine_data$severe_cases_data)
+
+#remove column5
+vaccine_data <- vaccine_data[-c(5)]
+```
+
+
+## Calculate Efficacy vs. Disease
+
+
+Efficacy vs disease =1-(% of fully vaxed severe cases per 100k/ % not vaxed severe cases per 100k)
+
+for people <50 years old
+% of fully vaxed severe cases per 100k = 11/1,000 = .011%
+% of ~vaxed severe cases per 100k = 43/1,000 = .043%
+% of fully vaxed severe cases per 100k = 290/1000 = .29%
+% of ~vaxed severe cases per 100k = 171/1000 = .171%
+
+```{r}
+efficacy_under_fifty <- 1-((vaccine_data[2,5]/1000)/(vaccine_data[1,5]/1000))
+efficacy_over_fifty <- 1-((vaccine_data[4,5]/1000)/(vaccine_data[3,5]/1000))
+efficacy_under_fifty<- round(efficacy_under_fifty, 3)
+efficacy_over_fifty <- round(efficacy_over_fifty, 3)
+```
+
+```{r}
+#To make more scalable, I would use something like this while loop.
+i <- 4
+while (i > 0) {
+  1-((vaccine_data[i,5]/1000)/(vaccine_data[(i-1),5]/1000))
+i = i -2
+}
+```
+
+
+## Add New Efficacy Vector
+
+
+```{r}
+vaccine_data$efficacy_against_severe_disease = c(efficacy_under_fifty, NA, efficacy_over_fifty, NA)
+```
+
+
+## Conclusions
+
+By comparing the data, it actually shows the opposite of what we would expect. Adults over the age of 50 are more likely to have severe disease if they're vaccinated. I'm not sure why the data is this way. My only guess would be that those vaccinated over the age of 50 have pre-existing conditions.
